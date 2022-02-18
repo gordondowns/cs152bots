@@ -4,12 +4,15 @@ import discord
 import json
 import re
 
+IMM_DANGER_RESPONSE = "Thank you for the information. Our content moderation team will review the message and notify the local authorities if necessary. Please contact 911 for immediate support."
+NORMAL_REPORT_RESPONSE = "Thank you for the information. Our content moderation team will review the message and reach out if needed. No further action is required on your part."
+
 class State(Enum):
     REPORT_START = auto()
     AWAITING_MESSAGE_URL = auto()
     MESSAGE_IDENTIFIED = auto()
     CATEGORIZE_MESSAGE = auto()
-    REPORT_COMPLETE = auto()
+    REPORT_SUBMITTED = auto()
     REPORT_CANCELLED = auto()
 
 class Categories(Enum):
@@ -19,20 +22,19 @@ class Categories(Enum):
     SCAM = "Fraud / Scam"
 
 class Report:
-    START_KEYWORD = "report"
-    CANCEL_KEYWORD = "cancel"
-    HELP_KEYWORD = "help"
-
-    START_KEYWORD = "r"
-    CANCEL_KEYWORD = "c"
-    HELP_KEYWORD = "h"
-    STATE_KEYWORD = "s"
+    START_KEYWORDS = {"r", "report"}
+    CANCEL_KEYWORDS = {"c", "cancel"}
+    HELP_KEYWORDS = {"h", "help"}
+    STATE_KEYWORD = {"s"} # DEBUG: get state
 
     def __init__(self, client):
         self.state = State.REPORT_START
         self.client = client
         self.message = None
         self.dm_channel = None
+        self.timestamp = None
+        self.message_url = ""
+        self.reporter_id = None
         self.mod_report = {}
     
     async def handle_message(self, message):
@@ -42,10 +44,10 @@ class Report:
         get you started and give you a model for working with Discord. 
         '''
 
-        if message.content == self.STATE_KEYWORD:
+        if message.content.lower in self.STATE_KEYWORD:
             return ["My state is " + str(self.state.name)]
 
-        if message.content == self.CANCEL_KEYWORD:
+        if message.content.lower() in self.CANCEL_KEYWORDS:
             return self.report_cancelled()
         
         if self.state == State.REPORT_START:
@@ -75,9 +77,13 @@ class Report:
         return [reply]
 
     async def awaiting_message_url(self, message):
-        # Parse out the three ID strings from the message link
-        m = re.search('/(\d+)/(\d+)/(\d+)', message.content)
-        m = re.search('/(\d+)/(\d+)/(\d+)', "https://discord.com/channels/915746011757019217/930035531889401866/944172931141992468")
+        # DEBUG: use known Link
+        if message.content.lower() == "test": 
+            m = re.search('/(\d+)/(\d+)/(\d+)', "https://discord.com/channels/915746011757019217/930035531889401866/944172931141992468")
+
+        else:
+            # Parse out the three ID strings from the message link
+            m = re.search('/(\d+)/(\d+)/(\d+)', message.content)
         
         if not m:
             return ["I'm sorry, I couldn't read that link. Please try again or say `cancel` to cancel."]
@@ -93,12 +99,15 @@ class Report:
         try:
             # note that message is the user dm and self.message is the reported message!
             self.message = await channel.fetch_message(int(m.group(3)))
+            self.reporter_id = message.author.id
             self.mod_report["reporter"] = message.author.name
-            self.mod_report["timestamp"] = str(datetime.datetime.now())
+            self.timestamp = datetime.datetime.now()
+            self.mod_report["timestamp"] = str(self.timestamp)
+            self.message_url = message.content
             self.mod_report["message"] = {
                 "author": self.message.author.name, 
                 "content": self.message.content,
-                "url": message.content
+                "url": self.message_url
             }
             self.state = State.MESSAGE_IDENTIFIED
         except discord.errors.NotFound:
@@ -116,6 +125,7 @@ class Report:
         choices = [e.value for e in Categories]
         user_choice = await self.prompt_for_choice(choices)
         self.mod_report["Category"] = choices[user_choice]
+        self.mod_report["crypto_scam"] = False
 
         if Categories(choices[user_choice]) == Categories.COMP_ACCOUNT:
             self.mod_report["account_status"] = "Reported to be compromised."
@@ -132,9 +142,7 @@ class Report:
             await self.block_user()
 
         elif Categories(choices[user_choice]) == Categories.IMM_DANGER:
-            await self.dm_channel.send("Thank you for the information. Our content moderation team will review the message and notify the local authorities if necessary. Please contact 911 for immediate support.")
-            await self.send_report()
-            self.state = State.REPORT_COMPLETE
+            await self.send_report(IMM_DANGER_RESPONSE)
             return
         
         elif Categories(choices[user_choice]) == Categories.SCAM:
@@ -143,15 +151,14 @@ class Report:
             self.mod_report["Sub-category"] = sub_choices[user_choice]
 
             if sub_choices[user_choice] == "Cryptocurrency Scam":
+                self.mod_report["crypto_scam"] = True
                 await self.crypto_specific()
 
             await self.more_info()
             await self.compromised_acct()
             await self.block_user()
 
-        await self.dm_channel.send("Thank you for the information. Our content moderation team will review the message and reach out if needed. No further action is required on your part.")
-        await self.send_report()
-        self.state = State.REPORT_COMPLETE
+        await self.send_report(NORMAL_REPORT_RESPONSE)
 
     async def prompt_for_choice(self, choices):
         reply = f"\n\nPlease enter a number between 1 and {len(choices)}:\n"
@@ -211,14 +218,28 @@ class Report:
             self.mod_report["account_status"] = "Reported not compromised."
 
 
-    async def send_report(self):
-        # Forward the message to the mod channel
-        mod_channel = self.client.mod_channels[self.message.guild.id]
-        await mod_channel.send(self.client.code_format(json.dumps(self.mod_report, indent=2)))
-        await self.message.add_reaction("🛑") # means the message is reported
+    async def send_report(self, success_message):
+        # ask bot to forward the message to the mod channel
+        sent, reason = await self.client.handle_user_report_submission(self.reporter_id, self.mod_report)
+        if sent: 
+            await self.message.add_reaction("🛑") # means the message is reported
+            await self.dm_channel.send(success_message)
+            self.state = State.REPORT_SUBMITTED
+        else: 
+            await self.dm_channel.send(f"Your report is cancelled due to the following reason:\n{reason}")
+            self.state = State.REPORT_CANCELLED
 
     def report_complete(self):
-        return self.state == State.REPORT_COMPLETE or self.state == State.REPORT_CANCELLED
+        return self.state == State.REPORT_SUBMITTED or self.state == State.REPORT_CANCELLED
+
+    def report_submitted(self):
+        return self.state == State.REPORT_SUBMITTED
+
+    def get_timestamp(self):
+        return self.timestamp
+
+    def get_message_url(self):
+        return self.message_url
     
 
 

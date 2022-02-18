@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import requests
+from collections import defaultdict
 from report import Report
 
 # Thresholds
@@ -28,14 +29,34 @@ with open(token_path) as f:
     discord_token = tokens['discord']
     perspective_key = tokens['perspective']
 
+class ActiveReport(object):
+    author = None
+    report = None
+    timestamp = None
+    message_url = None
+
+    def __init__(self, author, report, timestamp, message_url):
+        self.author = author
+        self.report = report
+        self.timestamp = timestamp
+        self.message_url = message_url
 
 class ModBot(discord.Client):
     def __init__(self, key):
         intents = discord.Intents.default()
         super().__init__(command_prefix='.', intents=intents)
         self.group_num = 16
-        self.mod_channels = {} # Map from guild to the mod channel id for that guild
+        self.mod_channel = {} # Map from guild to the mod channel id for that guild
         self.reports = {} # Map from user IDs to the state of their report
+
+        # Map from user IDs to their active report(s) that has not been moderated
+        def user_reports_stats():
+            return {
+                "timestamps": [],
+                "message_urls": []
+            } 
+        self.user_active_reports = defaultdict(user_reports_stats)
+        self.all_active_reports = []
         self.perspective_key = key
 
     async def on_ready(self):
@@ -55,7 +76,7 @@ class ModBot(discord.Client):
         for guild in self.guilds:
             for channel in guild.text_channels:
                 if channel.name == f'group-{self.group_num}-mod':
-                    self.mod_channels[guild.id] = channel
+                    self.mod_channel = channel
 
     async def on_message(self, message):
         '''
@@ -74,7 +95,7 @@ class ModBot(discord.Client):
 
     async def handle_dm(self, message):
         # Handle a help message
-        if message.content == Report.HELP_KEYWORD:
+        if message.content in Report.HELP_KEYWORDS:
             reply =  "Use the `report` command to begin the reporting process.\n"
             reply += "Use the `cancel` command to cancel the report process.\n"
             await message.channel.send(reply)
@@ -84,7 +105,7 @@ class ModBot(discord.Client):
         responses = []
 
         # Only respond to messages if they're part of a reporting flow
-        if author_id not in self.reports and not message.content.startswith(Report.START_KEYWORD):
+        if author_id not in self.reports and not message.content.lower() in Report.START_KEYWORDS:
             return
 
         # If we don't currently have an active report for this user, add one
@@ -100,6 +121,24 @@ class ModBot(discord.Client):
         if self.reports[author_id].report_complete():
             self.reports.pop(author_id)
 
+    async def handle_user_report_submission(self, author_id, mod_report):
+        if self.reports[author_id].get_message_url() in self.user_active_reports[author_id]["message_urls"]:
+            return False, "you have already submitted a report on this message"
+
+        # note down report stats
+        timestamp = self.reports[author_id].get_timestamp()
+        message_url = self.reports[author_id].get_message_url()
+        self.user_active_reports[author_id]["timestamps"].append(timestamp)
+        self.user_active_reports[author_id]["message_urls"].append(message_url)
+
+        # add report to all active reports
+        self.all_active_reports.append(ActiveReport(author_id, self.reports[author_id], timestamp, message_url))
+
+        # help report submit to mod channel
+        # TODO: can modify so a report from all_active_reports are sent to the moderators
+        await self.mod_channel.send(self.code_format(json.dumps(mod_report, indent=2)))
+        return True, ""
+
     async def handle_channel_message(self, message):
         # Only handle messages sent in the "group-#" channel
         if not message.channel.name == f'group-{self.group_num}':
@@ -109,9 +148,8 @@ class ModBot(discord.Client):
         auto_flag = await self.eval_perspective_score(message, scores)
         if auto_flag: 
             # Forward the message to the mod channel
-            mod_channel = self.mod_channels[message.guild.id]
-            await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
-            await mod_channel.send(self.code_format(json.dumps(scores, indent=2)))
+            await self.mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
+            await self.mod_channel.send(self.code_format(json.dumps(scores, indent=2)))
 
     def eval_text(self, message):
         '''
