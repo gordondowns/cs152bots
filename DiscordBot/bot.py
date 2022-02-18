@@ -30,7 +30,7 @@ class ModBot(discord.Client):
     def __init__(self, key):
         intents = discord.Intents.default()
         super().__init__(command_prefix='.', intents=intents)
-        self.group_num = None
+        self.group_num = 16
         self.mod_channels = {} # Map from guild to the mod channel id for that guild
         self.reports = {} # Map from user IDs to the state of their report
         self.perspective_key = key
