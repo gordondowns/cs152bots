@@ -105,13 +105,13 @@ class ModBot(discord.Client):
         if not message.channel.name == f'group-{self.group_num}':
             return
 
-        # Forward the message to the mod channel
-        mod_channel = self.mod_channels[message.guild.id]
-        await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
-
         scores = self.eval_text(message)
-        await self.eval_perspective_score(message, scores)
-        await mod_channel.send(self.code_format(json.dumps(scores, indent=2)))
+        auto_flag = await self.eval_perspective_score(message, scores)
+        if auto_flag: 
+            # Forward the message to the mod channel
+            mod_channel = self.mod_channels[message.guild.id]
+            await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
+            await mod_channel.send(self.code_format(json.dumps(scores, indent=2)))
 
     def eval_text(self, message):
         '''
@@ -147,7 +147,9 @@ class ModBot(discord.Client):
         for score in scores.values():
             if score > PROFANITY_THRESHOLD:
                 await message.add_reaction("🤬")
-                return
+                return True
+
+        return False
 
     async def on_message_edit(self, before, after):
         '''
