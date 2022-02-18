@@ -151,7 +151,7 @@ class ModBot(discord.Client):
 
     async def on_message_edit(self, before, after):
         '''
-        Prevent editing message
+        Prevent editing message into abusive content
         '''
         if before.content != after.content:
             await self.handle_channel_message(after)
