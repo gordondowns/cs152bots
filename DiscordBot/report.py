@@ -1,24 +1,39 @@
 from enum import Enum, auto
+import datetime;
 import discord
+import json
 import re
 
 class State(Enum):
     REPORT_START = auto()
     AWAITING_MESSAGE_URL = auto()
     MESSAGE_IDENTIFIED = auto()
+    CATEGORIZE_MESSAGE = auto()
     REPORT_COMPLETE = auto()
     REPORT_CANCELLED = auto()
+
+class Categories(Enum):
+    COMP_ACCOUNT = "This account may be compromised"
+    HARASSMENT = "Harassment / Offensive Content"
+    IMM_DANGER = "Immediate Danger"
+    SCAM = "Fraud / Scam"
 
 class Report:
     START_KEYWORD = "report"
     CANCEL_KEYWORD = "cancel"
     HELP_KEYWORD = "help"
 
+    START_KEYWORD = "r"
+    CANCEL_KEYWORD = "c"
+    HELP_KEYWORD = "h"
+    STATE_KEYWORD = "s"
+
     def __init__(self, client):
         self.state = State.REPORT_START
         self.client = client
         self.message = None
-        self.report_to_mod = {}
+        self.dm_channel = None
+        self.mod_report = {}
     
     async def handle_message(self, message):
         '''
@@ -27,6 +42,9 @@ class Report:
         get you started and give you a model for working with Discord. 
         '''
 
+        if message.content == self.STATE_KEYWORD:
+            return ["My state is " + str(self.state.name)]
+
         if message.content == self.CANCEL_KEYWORD:
             return self.report_cancelled()
         
@@ -34,10 +52,13 @@ class Report:
             return self.report_start()
         
         if self.state == State.AWAITING_MESSAGE_URL:
-            return await self.awaiting_message_url(message)
+            await self.awaiting_message_url(message)
+
+        # if self.state == State.MESSAGE_IDENTIFIED:
+        #     return await self.ggg(message)
         
-        if self.state == State.MESSAGE_IDENTIFIED:
-            return ["<insert rest of reporting flow here>"]
+        # if self.state == State.AWAITING_CHOICE:
+        #     return await self.awaiting_user_choice(message)
 
         return []
 
@@ -56,22 +77,145 @@ class Report:
     async def awaiting_message_url(self, message):
         # Parse out the three ID strings from the message link
         m = re.search('/(\d+)/(\d+)/(\d+)', message.content)
+        m = re.search('/(\d+)/(\d+)/(\d+)', "https://discord.com/channels/915746011757019217/930035531889401866/944172931141992468")
+        
         if not m:
             return ["I'm sorry, I couldn't read that link. Please try again or say `cancel` to cancel."]
+
         guild = self.client.get_guild(int(m.group(1)))
         if not guild:
             return ["I cannot accept reports of messages from guilds that I'm not in. Please have the guild owner add me to the guild and try again."]
+        
         channel = guild.get_channel(int(m.group(2)))
         if not channel:
             return ["It seems this channel was deleted or never existed. Please try again or say `cancel` to cancel."]
+        
         try:
-            message = await channel.fetch_message(int(m.group(3)))
+            # note that message is the user dm and self.message is the reported message!
+            self.message = await channel.fetch_message(int(m.group(3)))
+            self.mod_report["reporter"] = message.author.name
+            self.mod_report["timestamp"] = str(datetime.datetime.now())
+            self.mod_report["message"] = {
+                "author": self.message.author.name, 
+                "content": self.message.content,
+                "url": message.content
+            }
+            self.state = State.MESSAGE_IDENTIFIED
         except discord.errors.NotFound:
             return ["It seems this message was deleted or never existed. Please try again or say `cancel` to cancel."]
 
-        # Here we've found the message - it's up to you to decide what to do next!
-        self.state = State.MESSAGE_IDENTIFIED
-        return ["I found this message:", "```" + message.author.name + ": " + message.content + "```"]
+        # Here we've found the message
+        self.dm_channel = message.channel
+        await self.dm_channel.send(f"I found this message:\n```{self.message.author.name}: {self.message.content}```\n")
+        await self.categorize_message()
+        
+    async def categorize_message(self):
+        self.state = State.CATEGORIZE_MESSAGE
+        await self.dm_channel.send("Please tell us a bit more about this message.")
+
+        choices = [e.value for e in Categories]
+        user_choice = await self.prompt_for_choice(choices)
+        self.mod_report["Category"] = choices[user_choice]
+
+        if Categories(choices[user_choice]) == Categories.COMP_ACCOUNT:
+            self.mod_report["account_status"] = "Reported to be compromised."
+            await self.more_info()
+            await self.block_user()
+
+        elif Categories(choices[user_choice]) == Categories.HARASSMENT:
+            sub_choices = ["Hate speech", "Cyberbulling", "Sexual Content", "Illegal Activity", "Fake News", "Other / I don't like this post"]
+            user_choice = await self.prompt_for_choice(sub_choices)
+            self.mod_report["Sub-category"] = sub_choices[user_choice]
+            
+            await self.more_info()
+            await self.compromised_acct()
+            await self.block_user()
+
+        elif Categories(choices[user_choice]) == Categories.IMM_DANGER:
+            await self.dm_channel.send("Thank you for the information. Our content moderation team will review the message and notify the local authorities if necessary. Please contact 911 for immediate support.")
+            await self.send_report()
+            self.state = State.REPORT_COMPLETE
+            return
+        
+        elif Categories(choices[user_choice]) == Categories.SCAM:
+            sub_choices = ["Cryptocurrency Scam", "Financial Scam", "Phishing", "Impersonation", "Other"]
+            user_choice = await self.prompt_for_choice(sub_choices)
+            self.mod_report["Sub-category"] = sub_choices[user_choice]
+
+            if sub_choices[user_choice] == "Cryptocurrency Scam":
+                await self.crypto_specific()
+
+            await self.more_info()
+            await self.compromised_acct()
+            await self.block_user()
+
+        await self.dm_channel.send("Thank you for the information. Our content moderation team will review the message and reach out if needed. No further action is required on your part.")
+        await self.send_report()
+        self.state = State.REPORT_COMPLETE
+
+    async def prompt_for_choice(self, choices):
+        reply = f"\n\nPlease enter a number between 1 and {len(choices)}:\n"
+        for i, choice in enumerate(choices):
+            reply += f"{i+1}) {choice}\n"
+        await self.dm_channel.send(reply)
+
+        def check(msg):
+            return msg.content.isnumeric() and 0 < int(msg.content) and int(msg.content) <= len(choices)
+
+        msg = await self.client.wait_for("message", check=check)
+        return int(msg.content)-1
+
+    async def crypto_specific(self):
+        await self.dm_channel.send("Would you like us to automatically filter out messages similar to this one for the next 24 hours? This change will only be visible to you. Enter 'y' or 'n'.")
+
+        def check(msg):
+            return msg.content.lower() in {'y', 'n'}
+
+        msg = await self.client.wait_for("message", check=check)
+        if msg.content.lower() == 'y':
+            await self.dm_channel.send(f"MOCKED: Similar messages are filtered!")
+
+    async def more_info(self):
+        await self.dm_channel.send("Would you like to provide more information? \nEnter 'skip' to skip this step, and 'done' when finished.")
+        msg = await self.client.wait_for("message")
+        self.mod_report["justification"] = []
+
+        if msg.content.lower() != "skip":
+            while msg.content.lower() != "done":
+                self.mod_report["justification"].append(msg.content)
+                msg = await self.client.wait_for("message")
+        
+    async def block_user(self):
+        await self.dm_channel.send("Would you like to block this user? Enter 'y' or 'n'.")
+
+        def check(msg):
+            return msg.content.lower() in {'y', 'n'}
+
+        msg = await self.client.wait_for("message", check=check)
+        if msg.content.lower() == 'y':
+            await self.dm_channel.send(f"MOCKED: {self.message.author.name} is blocked!")
+            self.mod_report["user_action"] = f"Reporter blocked {self.message.author.name}."
+
+    async def compromised_acct(self):
+        await self.dm_channel.send("Do you think this account has been compromised? Enter 'y', 'n', or 'u' for 'unsure'.")
+
+        def check(msg):
+            return msg.content.lower() in {'y', 'n', 'u'}
+
+        msg = await self.client.wait_for("message", check=check)
+        if msg.content.lower() == 'y':
+            self.mod_report["account_status"] = "Reported to be compromised."
+        elif msg.content.lower() == 'u':
+            self.mod_report["account_status"] = "Reported may be compromised."
+        else:
+            self.mod_report["account_status"] = "Reported not compromised."
+
+
+    async def send_report(self):
+        # Forward the message to the mod channel
+        mod_channel = self.client.mod_channels[self.message.guild.id]
+        await mod_channel.send(self.client.code_format(json.dumps(self.mod_report, indent=2)))
+        await self.message.add_reaction("🛑") # means the message is reported
 
     def report_complete(self):
         return self.state == State.REPORT_COMPLETE or self.state == State.REPORT_CANCELLED
