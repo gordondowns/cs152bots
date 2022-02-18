@@ -154,8 +154,12 @@ class ModBot(discord.Client):
         Prevent editing message into abusive content
         '''
         if before.content != after.content:
-            await self.handle_channel_message(after)
-
+            if after.guild:
+                await self.handle_channel_message(after)
+            else:
+                reply = "Please do not edit your message to me!\n"
+                reply += "Use the `cancel` command to cancel the report process and start over.\n"
+                await after.channel.send(reply)
 
     def code_format(self, text):
         return "```" + text + "```"
