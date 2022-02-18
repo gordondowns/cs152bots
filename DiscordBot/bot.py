@@ -8,6 +8,9 @@ import re
 import requests
 from report import Report
 
+# Thresholds
+PROFANITY_THRESHOLD = 0.5
+
 # Set up logging to the console
 logger = logging.getLogger('discord')
 logger.setLevel(logging.DEBUG)
@@ -107,6 +110,7 @@ class ModBot(discord.Client):
         await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
 
         scores = self.eval_text(message)
+        await self.eval_perspective_score(message, scores)
         await mod_channel.send(self.code_format(json.dumps(scores, indent=2)))
 
     def eval_text(self, message):
@@ -134,6 +138,24 @@ class ModBot(discord.Client):
             scores[attr] = response_dict["attributeScores"][attr]["summaryScore"]["value"]
 
         return scores
+
+    async def eval_perspective_score(self, message, scores):
+        '''
+        Add profanity emoji to text if any attribute from Perspective is bigger than PROFANITY_THRESHOLD
+        '''
+
+        for score in scores.values():
+            if score > PROFANITY_THRESHOLD:
+                await message.add_reaction("🤬")
+                return
+
+    async def on_message_edit(self, before, after):
+        '''
+        Prevent editing message
+        '''
+        if before.content != after.content:
+            await self.handle_channel_message(after)
+
 
     def code_format(self, text):
         return "```" + text + "```"
