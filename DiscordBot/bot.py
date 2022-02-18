@@ -122,6 +122,8 @@ class ModBot(discord.Client):
             self.reports.pop(author_id)
 
     async def handle_user_report_submission(self, author_id, mod_report):
+        # block the report from being submitted if the user already submitted a report on the same message
+        # TODO: can add more conditions
         if self.reports[author_id].get_message_url() in self.user_active_reports[author_id]["message_urls"]:
             return False, "you have already submitted a report on this message"
 
@@ -135,7 +137,8 @@ class ModBot(discord.Client):
         self.all_active_reports.append(ActiveReport(author_id, self.reports[author_id], timestamp, message_url))
 
         # help report submit to mod channel
-        # TODO: can modify so a report from all_active_reports are sent to the moderators
+        # TODO: can modify so a report from all_active_reports is sent to the moderators when the mod channel 
+        # send a specific message instead of sending it immediately here.
         await self.mod_channel.send(self.code_format(json.dumps(mod_report, indent=2)))
         return True, ""
 
