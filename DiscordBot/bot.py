@@ -8,6 +8,7 @@ import re
 import requests
 from collections import defaultdict
 from report import Report
+from unidecode import unidecode
 
 # Thresholds
 PROFANITY_THRESHOLD = 0.5
@@ -161,8 +162,9 @@ class ModBot(discord.Client):
         PERSPECTIVE_URL = 'https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze'
 
         url = PERSPECTIVE_URL + '?key=' + self.perspective_key
+        unidecoded_message_content = unidecode(message.content).lower()
         data_dict = {
-            'comment': {'text': message.content},
+            'comment': {'text': unidecoded_message_content},
             'languages': ['en'],
             'requestedAttributes': {
                                     'SEVERE_TOXICITY': {}, 'PROFANITY': {},
