@@ -5,3 +5,7 @@ Current functionality:
 
 Extra packages to install:
 - `unidecode`
+  
+Questions:
+- only send auto-flagged message to moderator for unconfident predictions
+- TODO:only send the message at the top of the PQ, and send another when the current one HAS BEEN PROCESSED?

@@ -9,6 +9,9 @@ import requests
 from collections import defaultdict
 from report import Report
 from unidecode import unidecode
+from queue import PriorityQueue
+from dataclasses import dataclass, field
+import datetime
 
 # Thresholds
 PROFANITY_THRESHOLD = 0.5
@@ -30,6 +33,51 @@ with open(token_path) as f:
     discord_token = tokens['discord']
     perspective_key = tokens['perspective']
 
+@dataclass(order=True)
+class PrioritizedReport:
+    priority: datetime
+    item: object = field()
+
+class ForwardedReport(object):
+    reported_content = None #reported message content
+    reported_account = None
+    reporter_account = None #for user report
+    mod_report = None #manual report for user report
+    scores = None  # heuristics for auto report
+    timestamp = None
+    auto_flagged = False
+
+    def __init__(self, reported_content, reported_account, timestamp, reporter_account=None,
+                 mod_report = None, scores = None, auto_flagged = False):
+        self.reported_content = reported_content
+        self.reported_account = reported_account
+        self.reporter_account = reporter_account
+        self.mod_report = mod_report
+        self.scores = scores
+        self.auto_flagged = auto_flagged
+        self.report_time = timestamp
+
+    def fmtodict(self):
+        fmdict = {}
+        fmdict["reported_content"] = self.reported_content
+        fmdict["reported_account"] = self.reported_account
+        fmdict["report_time"] = self.report_time
+
+        fmdict["reporter_account"] = self.reporter_account
+        fmdict["mod_report"] = self.mod_report
+        fmdict["scores"] = self.scores
+        fmdict["auto_flagged"] = self.auto_flagged
+        return fmdict
+
+
+
+def dicttofm(fmdict):
+    return ForwardedReport(fmdict["reported_content"], fmdict["reported_account"], fmdict["report_time"],
+                           fmdict["reporter_account"], fmdict["mod_report"], fmdict["scores"], fmdict["auto_flagged"])
+
+
+
+
 class ActiveReport(object):
     author = None
     report = None
@@ -50,6 +98,7 @@ class ModBot(discord.Client):
         self.mod_channel = {} # Map from guild to the mod channel id for that guild
         self.reports = {} # Map from user IDs to the state of their report
 
+
         # Map from user IDs to their active report(s) that has not been moderated
         def user_reports_stats():
             return {
@@ -59,6 +108,7 @@ class ModBot(discord.Client):
         self.user_active_reports = defaultdict(user_reports_stats)
         self.all_active_reports = []
         self.perspective_key = key
+        self.review_queue = PriorityQueue()
 
     async def on_ready(self):
         print(f'{self.user.name} has connected to Discord! It is these guilds:')
@@ -140,20 +190,40 @@ class ModBot(discord.Client):
         # help report submit to mod channel
         # TODO: can modify so a report from all_active_reports is sent to the moderators when the mod channel 
         # send a specific message instead of sending it immediately here.
-        await self.mod_channel.send(self.code_format(json.dumps(mod_report, indent=2)))
+
+        fm = ForwardedReport(mod_report["message"]["content"], mod_report["message"]["author_id"], mod_report["timestamp"],
+                             reporter_account=author_id, mod_report = mod_report, scores = None, auto_flagged = False)
+
+        self.review_queue.put(
+            PrioritizedReport(datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f"), fm))
+        # TODO:only send the message at the top of the PQ, and send another when the current one HAS BEEN PROCESSED
+        await self.mod_channel.send(self.code_format(json.dumps(fm.fmtodict(), indent=2)))
         return True, ""
 
     async def handle_channel_message(self, message):
         # Only handle messages sent in the "group-#" channel
-        if not message.channel.name == f'group-{self.group_num}':
+        if not message.channel.name == f'group-{self.group_num}' and not message.channel.name == f'group-{self.group_num}-mod':
             return
+        elif message.channel.name == f'group-{self.group_num}':
+            scores = self.eval_text(message)
+            auto_flag = await self.eval_perspective_score(message, scores)
+            if auto_flag:
+                # Forward the message to the mod channel
+                # await self.mod_channel.send(f'Suspicious Scam Message Forwarded to Moderator:\n{message.author.name}: "{message.content}"')
+                fm = ForwardedReport(message.content, message.author.id,
+                                     str(datetime.datetime.now()),
+                                     reporter_account=None, mod_report=None, scores=scores, auto_flagged=True)
+                self.review_queue.put(
+                    PrioritizedReport(datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f"),fm))
 
-        scores = self.eval_text(message)
-        auto_flag = await self.eval_perspective_score(message, scores)
-        if auto_flag: 
-            # Forward the message to the mod channel
-            await self.mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
-            await self.mod_channel.send(self.code_format(json.dumps(scores, indent=2)))
+                #TODO:only send the message at the top of the PQ, and send another when the current one HAS BEEN PROCESSED
+                await self.mod_channel.send(self.code_format(json.dumps(fm.fmtodict(), indent=2)))
+        else:
+            #message forwarded to mod channel for manual review
+            forwarded_message_content = json.loads(message.content)
+            forwarded_message = dicttofm(forwarded_message_content)
+            #TODO: CONTINUE HERE
+
 
     def eval_text(self, message):
         '''

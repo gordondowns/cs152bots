@@ -105,6 +105,7 @@ class Report:
             self.mod_report["timestamp"] = str(self.timestamp)
             self.message_url = message.content
             self.mod_report["message"] = {
+                "author_id": self.message.author.id,
                 "author": self.message.author.name, 
                 "content": self.message.content,
                 "url": self.message_url
@@ -173,6 +174,7 @@ class Report:
         return int(msg.content)-1
 
     async def crypto_specific(self):
+        #TODO: modify this part according to the updated user flow?
         await self.dm_channel.send("Would you like us to automatically filter out messages similar to this one for the next 24 hours? This change will only be visible to you. Enter 'y' or 'n'.")
 
         def check(msg):
