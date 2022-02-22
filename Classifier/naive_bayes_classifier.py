@@ -165,6 +165,7 @@ if __name__ == "__main__":
     np.set_printoptions(suppress=True)
     # print(preds_manual)
     
-    
-    
-    # import ipdb; ipdb.set_trace()
+    ##### Save model
+    # import pickle
+    # pickle.dump(vectorizer_disc, open("models/trained_on_discord/vectorizer_disc.pickle", "wb"))
+    # pickle.dump(model_disc, open("models/trained_on_discord/model_disc.pickle", "wb"))
