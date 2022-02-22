@@ -2,3 +2,5 @@
 DiscordBot/tokens.json
 TABot/tokens.json
 .DS_Store
+__pycache__
+
