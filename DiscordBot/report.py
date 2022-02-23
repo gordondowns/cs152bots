@@ -100,6 +100,7 @@ class Report:
             # note that message is the user dm and self.message is the reported message!
             self.message = await channel.fetch_message(int(m.group(3)))
             self.reporter_id = message.author.id
+            self.mod_report["report_dm_channel_id"] = message.channel.id
             self.mod_report["reporter"] = message.author.name
             self.timestamp = datetime.datetime.now()
             self.mod_report["timestamp"] = str(self.timestamp)
@@ -222,7 +223,7 @@ class Report:
 
     async def send_report(self, success_message):
         # ask bot to forward the message to the mod channel
-        sent, reason = await self.client.handle_user_report_submission(self.reporter_id, self.mod_report)
+        sent, reason = self.client.handle_user_report_submission(self.reporter_id, self.mod_report)
         if sent: 
             await self.message.add_reaction("🛑") # means the message is reported
             await self.dm_channel.send(success_message)

@@ -12,9 +12,14 @@ from unidecode import unidecode
 from queue import PriorityQueue
 from dataclasses import dataclass, field
 import datetime
+from enum import Enum, auto
 
 # Thresholds
-PROFANITY_THRESHOLD = 0.5
+PROFANITY_THRESHOLD = 0.5 #the threshold of being suspicious
+PROFANITY_THRESHOLD_Moderation = 0.9 #manual review if PROFANITY_THRESHOLD< score < PROFANITY_THRESHOLD_Moderation
+MALICIOUS_REPORTER_SUSPEND_TIME = 1 #in mins
+SCAMMER_DEACT_TIME_SHORT = 1 #in days
+SCAMMER_DEACT_TIME_LONG = 7 #in days
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -109,6 +114,19 @@ class ModBot(discord.Client):
         self.all_active_reports = []
         self.perspective_key = key
         self.review_queue = PriorityQueue()
+        self.malicious_reporter_ids = {} #map malicious user id to the time their report feature is suspeneded
+        self.scamaddr = {} #platform's internal blacklist of scam URLs/crypto addresses
+
+
+        self.moderator_state = "Free" #"Free" if the moderator is done with a report, #"Busy" if dealing with a report, check before send msg to mod_channel
+
+    async def check_review_queue(self):
+        nextmsg = None
+        if not self.review_queue.empty():
+            nextmsg = self.review_queue.get().item
+            await self.mod_channel.send(self.code_format(json.dumps(nextmsg.fmtodict(), indent=2)))
+        return nextmsg
+
 
     async def on_ready(self):
         print(f'{self.user.name} has connected to Discord! It is these guilds:')
@@ -159,6 +177,15 @@ class ModBot(discord.Client):
         if author_id not in self.reports and not message.content.lower() in Report.START_KEYWORDS:
             return
 
+        if message.author.id in self.malicious_reporter_ids:
+            td = datetime.datetime.now()-self.malicious_reporter_ids[message.author.id]
+            time_elapse = td.total_seconds() / 60
+            if time_elapse < MALICIOUS_REPORTER_SUSPEND_TIME:
+                reply = "Reporting feature is temporarily suspended for your account."
+            await message.channel.send(reply)
+            return
+
+
         # If we don't currently have an active report for this user, add one
         if author_id not in self.reports:
             self.reports[author_id] = Report(self)
@@ -172,7 +199,7 @@ class ModBot(discord.Client):
         if self.reports[author_id].report_complete():
             self.reports.pop(author_id)
 
-    async def handle_user_report_submission(self, author_id, mod_report):
+    def handle_user_report_submission(self, author_id, mod_report):
         # block the report from being submitted if the user already submitted a report on the same message
         # TODO: can add more conditions
         if self.reports[author_id].get_message_url() in self.user_active_reports[author_id]["message_urls"]:
@@ -197,7 +224,7 @@ class ModBot(discord.Client):
         self.review_queue.put(
             PrioritizedReport(datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f"), fm))
         # TODO:only send the message at the top of the PQ, and send another when the current one HAS BEEN PROCESSED
-        await self.mod_channel.send(self.code_format(json.dumps(fm.fmtodict(), indent=2)))
+        # await self.mod_channel.send(self.code_format(json.dumps(fm.fmtodict(), indent=2)))
         return True, ""
 
     async def handle_channel_message(self, message):
@@ -206,8 +233,8 @@ class ModBot(discord.Client):
             return
         elif message.channel.name == f'group-{self.group_num}':
             scores = self.eval_text(message)
-            auto_flag = await self.eval_perspective_score(message, scores)
-            if auto_flag:
+            report_to_moderator = await self.eval_perspective_score(message, scores)
+            if report_to_moderator:
                 # Forward the message to the mod channel
                 # await self.mod_channel.send(f'Suspicious Scam Message Forwarded to Moderator:\n{message.author.name}: "{message.content}"')
                 fm = ForwardedReport(message.content, message.author.id,
@@ -217,12 +244,39 @@ class ModBot(discord.Client):
                     PrioritizedReport(datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f"),fm))
 
                 #TODO:only send the message at the top of the PQ, and send another when the current one HAS BEEN PROCESSED
-                await self.mod_channel.send(self.code_format(json.dumps(fm.fmtodict(), indent=2)))
+                # await self.mod_channel.send(self.code_format(json.dumps(fm.fmtodict(), indent=2)))
         else:
-            #message forwarded to mod channel for manual review
-            forwarded_message_content = json.loads(message.content)
-            forwarded_message = dicttofm(forwarded_message_content)
-            #TODO: CONTINUE HERE
+            #moderator should input "review the next report in the queue"
+            if message.content.lower() == "review the next report in the queue":
+                forwarded_message = await self.check_review_queue()
+                if forwarded_message is None:
+                    reply = "No more reports to be reviewed.\n"
+                    await message.channel.send(reply)
+                else:
+                    malicious = False
+                    if not forwarded_message.auto_flagged:
+                        malicious = await self.check_malicious_user_report(forwarded_message, message.channel)
+                    if malicious:
+                        await self.mod_channel.send("Finished processing a malicious user report")
+                    else:
+                        immediate_danger = await self.check_immediate_danger(message.channel)
+                    if immediate_danger:
+                        await self.mod_channel.send("Finished processing a report")
+                    else:
+                        escalate = await self.check_escalate(message.channel)
+                    if escalate:
+                        await self.mod_channel.send("Finished processing a report")
+                    else:
+                        #todo
+                        newscamaddr =  await self.checkscamaddr(message.channel)
+                        if newscamaddr is not None:
+                            self.scamaddr.add(newscamaddr)
+                        await self.mod_channel.send(
+                            "Added the reported scam URL/crypto address to the internal blacklist.")
+
+                        await self.handleDM(forwarded_message, message.channel)
+                        await self.handleReportedAccount(forwarded_message, message.channel)
+                        await self.mod_channel.send("Finished processing a report")
 
 
     def eval_text(self, message):
@@ -257,12 +311,20 @@ class ModBot(discord.Client):
         Add profanity emoji to text if any attribute from Perspective is bigger than PROFANITY_THRESHOLD
         '''
 
+        report_to_moderator = True
+        safe = True
+
         for score in scores.values():
             if score > PROFANITY_THRESHOLD:
+                safe = False
+            if score > PROFANITY_THRESHOLD_Moderation:
                 await message.add_reaction("🤬")
-                return True
+                report_to_moderator = False
 
-        return False
+        if not safe and report_to_moderator:
+            return True
+        else:
+            return False
 
     async def on_message_edit(self, before, after):
         '''
@@ -278,6 +340,145 @@ class ModBot(discord.Client):
 
     def code_format(self, text):
         return "```" + text + "```"
+
+    async def prompt_for_choice(self, choices, channel):
+        reply = f"\n\nPlease enter a number between 1 and {len(choices)}:\n"
+        for i, choice in enumerate(choices):
+            reply += f"{i+1}) {choice}\n"
+        await channel.send(reply)
+
+        def check(msg):
+            return msg.content.isnumeric() and 0 < int(msg.content) and int(msg.content) <= len(choices)
+
+        msg = await self.wait_for("message", check=check)
+        return int(msg.content)-1
+
+    async def check_malicious_user_report(self, forwarded_message, channel):
+
+        await channel.send("Is this a malicious user report? Enter 'y' or 'n'.")
+
+        def check(msg):
+            return msg.content.lower() in {'y', 'n'}
+
+        msg = await self.wait_for("message", check=check)
+        if msg.content.lower() == 'y':
+            await self.handle_malicious_user_report(forwarded_message, channel)
+            return True
+        else:
+            #genuine report
+            return False
+
+    async def handle_malicious_user_report(self, forwarded_message, channel):
+        malicious_user_id = forwarded_message.reporter_account
+        malicious_report_channel_id = forwarded_message.mod_report["report_dm_channel_id"]
+
+        choices = [e.value for e in ReporterOutcomes]
+        user_choice = await self.prompt_for_choice(choices, channel)
+        reporteroutcome = ReporterOutcomes(choices[user_choice])
+
+
+        if reporteroutcome == ReporterOutcomes.WARN:
+            await self.get_channel(malicious_report_channel_id).send("WARNING: please do not send malicious report!")
+        else:
+            assert reporteroutcome == ReporterOutcomes.SUSPEND
+            self.malicious_reporter_ids[malicious_user_id] = datetime.datetime.now()
+            await self.get_channel(malicious_report_channel_id).send("Your report feature will be suspended for "+
+                                                                     str(MALICIOUS_REPORTER_SUSPEND_TIME)+ " minutes for "
+                                                                     "sending malicious report!", )
+
+    async def check_immediate_danger(self, channel):
+
+        await channel.send("Is there an immediate danger? Enter 'y' or 'n'.")
+
+        def check(msg):
+            return msg.content.lower() in {'y', 'n'}
+
+        msg = await self.wait_for("message", check=check)
+        if msg.content.lower() == 'y':
+            await channel.send("MOCKED: Incident is reported to law enforcement!")
+            return True
+        else:
+            return False
+
+    async def check_escalate(self, channel):
+
+        await channel.send("Would you like to escalate to higher-level reviewers? Enter 'y' or 'n'.")
+
+        def check(msg):
+            return msg.content.lower() in {'y', 'n'}
+
+        msg = await self.wait_for("message", check=check)
+        if msg.content.lower() == 'y':
+            await channel.send("MOCKED: Incident is escalated to higher-level reviewers!")
+            return True
+        else:
+            return False
+
+    async def checkscamaddr(self, channel):
+        url = None
+        await channel.send("Does the message include a scam URL/crypto address? Enter 'y' or 'n'.")
+
+        def check(msg):
+            return msg.content.lower() in {'y', 'n'}
+
+        msg = await self.wait_for("message", check=check)
+
+        if msg.content.lower() == 'y':
+            await channel.send("Please enter the reported scam URL/crypto address to be added to the internal blacklist.")
+            msg = await self.client.wait_for("message")
+            url = msg.content
+        return url
+
+    async def handleDM(self, forwarded_message, channel):
+
+        choices = [e.value for e in DMOutcomes]
+        user_choice = await self.prompt_for_choice(choices, channel)
+        dmoutcome = DMOutcomes(choices[user_choice])
+
+        if dmoutcome == DMOutcomes.FLAG:
+            scam_message_url = forwarded_message.mod_report["message"]["url"]
+            guild = self.client.get_guild(int(scam_message_url.group(1)))
+            scam_message_channel = guild.get_channel(int(scam_message_url.group(2)))
+            scam_message = await scam_message_channel.fetch_message(int(scam_message_url.group(3)))
+            await scam_message.add_reaction("‼️")  # the dm has been flagged
+
+
+    async def handleReportedAccount(self, forwarded_message, channel):
+        choices = [e.value for e in DMOutcomes]
+        user_choice = await self.prompt_for_choice(choices, channel)
+        ReportedAccountOut  = ReportedAccOutcomes(choices[user_choice])
+        scammer_id = forwarded_message.reported_account
+
+        if ReportedAccountOut == ReportedAccOutcomes.TEMPDEACTSHORT:
+            dm = await self.create_dm(scammer_id)
+            await dm.send("WARNING: please do not send scam messages. " +
+                          "Your account will be temporarily deactivated for " + str(SCAMMER_DEACT_TIME_SHORT) + " days.")
+        elif ReportedAccountOut == ReportedAccOutcomes.TEMPDEACTLONG:
+            dm = await self.create_dm(scammer_id)
+            await dm.send("WARNING: please do not send scam messages. " +
+                          "Your account will be temporarily deactivated for " + str(SCAMMER_DEACT_TIME_LONG) + " days.")
+        elif ReportedAccountOut == ReportedAccOutcomes.PERMANENTLYDEACT:
+            dm = await self.create_dm(scammer_id)
+            await dm.send("WARNING: please do not send scam messages. " +
+                          "Your account will be permanently deactivated.")
+
+
+
+
+class ReporterOutcomes(Enum):
+    WARN = "Warn the reporter for malicious reports."
+    SUSPEND = "Suspend the report feature for the reporter account."
+
+class DMOutcomes(Enum):
+    NOACTION = "False Alarm: No action."
+    FLAG = "Scam Message: Flag Message."
+
+class ReportedAccOutcomes(Enum):
+    NOACTION = "False Alarm: No action."
+    TEMPDEACTSHORT = "Low Severity: Temporarily deactivate reported account for a short period and warn."
+    TEMPDEACTLONG = "Medium Severity: Temporarily deactivate reported account for a longer period and warn."
+    PERMANENTLYDEACT = "High Severity:Permanently deactivate reported account."
+
 
 
 client = ModBot(perspective_key)
