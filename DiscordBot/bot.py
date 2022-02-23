@@ -13,6 +13,9 @@ from queue import PriorityQueue
 from dataclasses import dataclass, field
 import datetime
 from enum import Enum, auto
+import pickle
+from crypto_scam_classifier import naive_bayes_classifier
+
 
 # Thresholds
 PROFANITY_THRESHOLD = 0.5 #the threshold of being suspicious
@@ -37,6 +40,10 @@ with open(token_path) as f:
     tokens = json.load(f)
     discord_token = tokens['discord']
     perspective_key = tokens['perspective']
+
+# Load classifier and vectorizer that were trained on our Discord dataset
+vectorizer = pickle.load(open("crypto_scam_classifier/vectorizer_disc.pickle", "rb"))
+classifier = pickle.load(open("crypto_scam_classifier/model_disc.pickle", "rb"))
 
 @dataclass(order=True)
 class PrioritizedReport:
@@ -281,7 +288,7 @@ class ModBot(discord.Client):
 
     def eval_text(self, message):
         '''
-        Given a message, forwards the message to Perspective and returns a dictionary of scores.
+        Evaluates a message using Perspective and our classifier and returns a dictionary of scores.
         '''
         PERSPECTIVE_URL = 'https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze'
 
@@ -304,6 +311,11 @@ class ModBot(discord.Client):
         for attr in response_dict["attributeScores"]:
             scores[attr] = response_dict["attributeScores"][attr]["summaryScore"]["value"]
 
+        # now eval using crypto scam classifier
+        crypto_scam_proba = naive_bayes_classifier.get_predictions([unidecoded_message_content], 
+                                                        classifier, vectorizer, predict_proba=True)[0][1]
+        scores['CRYPTO_SCAM'] = crypto_scam_proba
+        
         return scores
 
     async def eval_perspective_score(self, message, scores):
