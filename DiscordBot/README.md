@@ -3,7 +3,7 @@ Current functionality:
 - Stop a user from submitting multiple reports on the same message  (can add more conditions later)
 
 Updated functionality for user flow:
-- delete "filter out similar" form user flow code as we discussed? 
+- delete "filter out similar" from user flow code as we discussed? 
 - Auto-flag message if any toxicity level (perspective/customized) > 0.9 This includes sending an innocuous message and editing it to something bad. 
   The bot will react to the message with 🤬
 - only send auto-flagged message to moderator for unconfident predictions (all toxicity levels are between 0.5 and 0.9). react to this message with ❓
