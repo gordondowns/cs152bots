@@ -122,7 +122,7 @@ class ModBot(discord.Client):
         self.perspective_key = key
         self.review_queue = PriorityQueue()
         self.malicious_reporter_ids = {} #map malicious user id to the time their report feature is suspeneded
-        self.scamaddr = {} #platform's internal blacklist of scam URLs/crypto addresses
+        self.scamaddr = set() #platform's internal blacklist of scam URLs/crypto addresses
 
 
         self.moderator_state = "Free" #"Free" if the moderator is done with a report, #"Busy" if dealing with a report, check before send msg to mod_channel
@@ -244,9 +244,17 @@ class ModBot(discord.Client):
             if report_to_moderator:
                 # Forward the message to the mod channel
                 # await self.mod_channel.send(f'Suspicious Scam Message Forwarded to Moderator:\n{message.author.name}: "{message.content}"')
+                mod_report = {}
+
+                mod_report["message"] = {
+                    "author_id": message.author.id,
+                    "author": message.author.name,
+                    "content": message.content,
+                    "url": message.jump_url
+                }
                 fm = ForwardedReport(message.content, message.author.id,
                                      str(datetime.datetime.now()),
-                                     reporter_account=None, mod_report=None, scores=scores, auto_flagged=True)
+                                     reporter_account=None, mod_report=mod_report, scores=scores, auto_flagged=True)
                 self.review_queue.put(
                     PrioritizedReport(datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f"),fm))
 
@@ -261,29 +269,56 @@ class ModBot(discord.Client):
                     await message.channel.send(reply)
                 else:
                     malicious = False
+                    immediate_danger = False
+                    escalate = False
                     if not forwarded_message.auto_flagged:
                         malicious = await self.check_malicious_user_report(forwarded_message, message.channel)
                     if malicious:
+                        scam_message_url = forwarded_message.mod_report["message"]["url"]
+                        scam_message_url = re.search('/(\d+)/(\d+)/(\d+)', scam_message_url)
+                        guild = self.get_guild(int(scam_message_url.group(1)))
+                        scam_message_channel = guild.get_channel(int(scam_message_url.group(2)))
+                        scam_message = await scam_message_channel.fetch_message(int(scam_message_url.group(3)))
+                        await scam_message.reactions[0].remove(self.user)
                         await self.mod_channel.send("Finished processing a malicious user report")
+                        return
                     else:
                         immediate_danger = await self.check_immediate_danger(message.channel)
                     if immediate_danger:
+                        scam_message_url = forwarded_message.mod_report["message"]["url"]
+                        scam_message_url = re.search('/(\d+)/(\d+)/(\d+)', scam_message_url)
+                        guild = self.get_guild(int(scam_message_url.group(1)))
+                        scam_message_channel = guild.get_channel(int(scam_message_url.group(2)))
+                        scam_message = await scam_message_channel.fetch_message(int(scam_message_url.group(3)))
+                        await scam_message.reactions[0].remove(self.user)
+                        await scam_message.add_reaction("🆘")  # the dm has been flagged with immediate danger
                         await self.mod_channel.send("Finished processing a report")
+                        return
                     else:
                         escalate = await self.check_escalate(message.channel)
                     if escalate:
+                        scam_message_url = forwarded_message.mod_report["message"]["url"]
+                        scam_message_url = re.search('/(\d+)/(\d+)/(\d+)', scam_message_url)
+                        guild = self.get_guild(int(scam_message_url.group(1)))
+                        scam_message_channel = guild.get_channel(int(scam_message_url.group(2)))
+                        scam_message = await scam_message_channel.fetch_message(int(scam_message_url.group(3)))
+                        await scam_message.reactions[0].remove(self.user)
+                        await scam_message.add_reaction("👨‍💼")  # the dm has been escalated
+
                         await self.mod_channel.send("Finished processing a report")
+                        return
                     else:
                         #todo
                         newscamaddr =  await self.checkscamaddr(message.channel)
                         if newscamaddr is not None:
                             self.scamaddr.add(newscamaddr)
-                        await self.mod_channel.send(
-                            "Added the reported scam URL/crypto address to the internal blacklist.")
+                            await self.mod_channel.send(
+                                "Added the reported scam URL/crypto address to the internal blacklist.")
 
-                        await self.handleDM(forwarded_message, message.channel)
+                        await self.handleMessage(forwarded_message, message.channel)
                         await self.handleReportedAccount(forwarded_message, message.channel)
                         await self.mod_channel.send("Finished processing a report")
+                        return
 
 
     def eval_text(self, message):
@@ -334,6 +369,7 @@ class ModBot(discord.Client):
                 report_to_moderator = False
 
         if not safe and report_to_moderator:
+            await message.add_reaction("❓") #means send to moderator
             return True
         else:
             return False
@@ -383,7 +419,7 @@ class ModBot(discord.Client):
     async def handle_malicious_user_report(self, forwarded_message, channel):
         malicious_user_id = forwarded_message.reporter_account
         malicious_report_channel_id = forwarded_message.mod_report["report_dm_channel_id"]
-
+        await channel.send("Choose outcome for the malicious reporter.")
         choices = [e.value for e in ReporterOutcomes]
         user_choice = await self.prompt_for_choice(choices, channel)
         reporteroutcome = ReporterOutcomes(choices[user_choice])
@@ -437,41 +473,47 @@ class ModBot(discord.Client):
 
         if msg.content.lower() == 'y':
             await channel.send("Please enter the reported scam URL/crypto address to be added to the internal blacklist.")
-            msg = await self.client.wait_for("message")
+            msg = await self.wait_for("message")
             url = msg.content
         return url
 
-    async def handleDM(self, forwarded_message, channel):
-
+    async def handleMessage(self, forwarded_message, channel):
+        await channel.send("Choose outcome for the reported content.")
         choices = [e.value for e in DMOutcomes]
         user_choice = await self.prompt_for_choice(choices, channel)
         dmoutcome = DMOutcomes(choices[user_choice])
 
+        scam_message_url = forwarded_message.mod_report["message"]["url"]
+        scam_message_url = re.search('/(\d+)/(\d+)/(\d+)', scam_message_url)
+        guild = self.get_guild(int(scam_message_url.group(1)))
+        scam_message_channel = guild.get_channel(int(scam_message_url.group(2)))
+        scam_message = await scam_message_channel.fetch_message(int(scam_message_url.group(3)))
+
+        await scam_message.reactions[0].remove(self.user)
+
         if dmoutcome == DMOutcomes.FLAG:
-            scam_message_url = forwarded_message.mod_report["message"]["url"]
-            guild = self.client.get_guild(int(scam_message_url.group(1)))
-            scam_message_channel = guild.get_channel(int(scam_message_url.group(2)))
-            scam_message = await scam_message_channel.fetch_message(int(scam_message_url.group(3)))
             await scam_message.add_reaction("‼️")  # the dm has been flagged
 
 
+
     async def handleReportedAccount(self, forwarded_message, channel):
-        choices = [e.value for e in DMOutcomes]
+        await channel.send("Choose outcome for the reported account.")
+        choices = [e.value for e in ReportedAccOutcomes]
         user_choice = await self.prompt_for_choice(choices, channel)
         ReportedAccountOut  = ReportedAccOutcomes(choices[user_choice])
         scammer_id = forwarded_message.reported_account
 
         if ReportedAccountOut == ReportedAccOutcomes.TEMPDEACTSHORT:
-            dm = await self.create_dm(scammer_id)
-            await dm.send("WARNING: please do not send scam messages. " +
+            scammer = await self.fetch_user(scammer_id)
+            await scammer.send("WARNING: please do not send scam messages. " +
                           "Your account will be temporarily deactivated for " + str(SCAMMER_DEACT_TIME_SHORT) + " days.")
         elif ReportedAccountOut == ReportedAccOutcomes.TEMPDEACTLONG:
-            dm = await self.create_dm(scammer_id)
-            await dm.send("WARNING: please do not send scam messages. " +
+            scammer = await self.fetch_user(scammer_id)
+            await scammer.send("WARNING: please do not send scam messages. " +
                           "Your account will be temporarily deactivated for " + str(SCAMMER_DEACT_TIME_LONG) + " days.")
         elif ReportedAccountOut == ReportedAccOutcomes.PERMANENTLYDEACT:
-            dm = await self.create_dm(scammer_id)
-            await dm.send("WARNING: please do not send scam messages. " +
+            scammer = await self.fetch_user(scammer_id)
+            await scammer.send("WARNING: please do not send scam messages. " +
                           "Your account will be permanently deactivated.")
 
 

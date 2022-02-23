@@ -175,15 +175,16 @@ class Report:
         return int(msg.content)-1
 
     async def crypto_specific(self):
-        #TODO: modify this part according to the updated user flow?
-        await self.dm_channel.send("Would you like us to automatically filter out messages similar to this one for the next 24 hours? This change will only be visible to you. Enter 'y' or 'n'.")
-
-        def check(msg):
-            return msg.content.lower() in {'y', 'n'}
-
-        msg = await self.client.wait_for("message", check=check)
-        if msg.content.lower() == 'y':
-            await self.dm_channel.send(f"MOCKED: Similar messages are filtered!")
+        # #TODO: modify this part according to the updated user flow?
+        # await self.dm_channel.send("Would you like us to automatically filter out messages similar to this one for the next 24 hours? This change will only be visible to you. Enter 'y' or 'n'.")
+        #
+        # def check(msg):
+        #     return msg.content.lower() in {'y', 'n'}
+        #
+        # msg = await self.client.wait_for("message", check=check)
+        # if msg.content.lower() == 'y':
+        #     await self.dm_channel.send(f"MOCKED: Similar messages are filtered!")
+        return
 
     async def more_info(self):
         await self.dm_channel.send("Would you like to provide more information? \nEnter 'skip' to skip this step, and 'done' when finished.")
