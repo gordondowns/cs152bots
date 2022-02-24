@@ -124,7 +124,9 @@ class ModBot(discord.Client):
         self.malicious_reporter_ids = {} #map malicious user id to the time their report feature is suspeneded
         self.scamaddr = set(['15a8R7dAVBnXxYkAkL4Rp7HeY3jacb2N3B', #platform's internal blacklist of scam URLs/crypto addresses. Initializing with a few examples
                              'bc1qxch7fme8karau7rl3s7pt2mfj2y6n8nzpj2d6u',
-                             '37QgMqfZpzCqA9mMfokWGy5pNh7g1xFfPi'])
+                             '37QgMqfZpzCqA9mMfokWGy5pNh7g1xFfPi',
+                             'https://www.thisisacryptoscam.com',
+                             'https://www.giveawayscams.com'])
 
 
         self.moderator_state = "Free" #"Free" if the moderator is done with a report, #"Busy" if dealing with a report, check before send msg to mod_channel
@@ -399,13 +401,17 @@ class ModBot(discord.Client):
         Add web emoji to text if URL/address is in blacklist
         '''
         # Check for bitcoin addresses in blacklist. 
-        # TODO: also add URLs
         bitcoin_regex = re.compile(r'\b([13][a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[ac-hj-np-zAC-HJ-NP-Z02-9]{11,71})\b')
         bitcoin_addresses = bitcoin_regex.findall(message.content)
+        url_regex = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
+        urls = url_regex.findall(message.content)
 
         message_contains_blacklist_item = False
         for addr in bitcoin_addresses:
             if addr in self.scamaddr:
+                message_contains_blacklist_item = True
+        for url in urls:
+            if url in self.scamaddr:
                 message_contains_blacklist_item = True
         if message_contains_blacklist_item:
             await message.add_reaction("🕸️")
