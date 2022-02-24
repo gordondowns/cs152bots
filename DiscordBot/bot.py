@@ -47,7 +47,7 @@ classifier = pickle.load(open("crypto_scam_classifier/model_disc.pickle", "rb"))
 
 @dataclass(order=True)
 class PrioritizedReport:
-    priority: datetime
+    priority: (int, datetime)
     item: object = field()
 
 class ForwardedReport(object):
@@ -229,10 +229,12 @@ class ModBot(discord.Client):
         fm = ForwardedReport(mod_report["message"]["content"], mod_report["message"]["author_id"], mod_report["timestamp"],
                              reporter_account=author_id, mod_report = mod_report, scores = None, auto_flagged = False)
 
+        immediate_danger = 1   #1:not immediate_danger
+        if mod_report["immediate_danger"]:
+            immediate_danger = 0
         self.review_queue.put(
-            PrioritizedReport(datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f"), fm))
-        # TODO:only send the message at the top of the PQ, and send another when the current one HAS BEEN PROCESSED
-        # await self.mod_channel.send(self.code_format(json.dumps(fm.fmtodict(), indent=2)))
+            PrioritizedReport((immediate_danger, datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f")), fm))
+        
         return True, ""
 
     async def handle_channel_message(self, message):
@@ -257,11 +259,11 @@ class ModBot(discord.Client):
                 fm = ForwardedReport(message.content, message.author.id,
                                      str(datetime.datetime.now()),
                                      reporter_account=None, mod_report=mod_report, scores=scores, auto_flagged=True)
-                self.review_queue.put(
-                    PrioritizedReport(datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f"),fm))
+                immediate_danger = 1
+                self.review_queue.put((immediate_danger,
+                    PrioritizedReport(datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f")),fm))
 
-                #TODO:only send the message at the top of the PQ, and send another when the current one HAS BEEN PROCESSED
-                # await self.mod_channel.send(self.code_format(json.dumps(fm.fmtodict(), indent=2)))
+
 
         else:
             #moderator should input "next report"
@@ -477,7 +479,7 @@ class ModBot(discord.Client):
 
         msg = await self.wait_for("message", check=check)
         if msg.content.lower() == 'y':
-            await channel.send("MOCKED: Incident is reported to law enforcement! \nThis report will be escalated to higher-level reviewers for further processing.")
+            await channel.send("MOCKED: Incident is reported to law enforcement!")
             return True
         else:
             return False
