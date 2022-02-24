@@ -264,10 +264,16 @@ class ModBot(discord.Client):
         else:
             #moderator should input "next report"
             if message.content.lower() == "next report":
+                if self.moderator_state == "BUSY":
+                    reply = "Please finish processing the current report before starting a new one.\n"
+                    await message.channel.send(reply)
+                    return
+                self.moderator_state = "Busy"
                 forwarded_message = await self.check_review_queue()
                 if forwarded_message is None:
                     reply = "No more reports to be reviewed.\n"
                     await message.channel.send(reply)
+                    self.moderator_state = "Free"
                 else:
                     malicious = False
                     immediate_danger = False
@@ -282,6 +288,7 @@ class ModBot(discord.Client):
                         scam_message = await scam_message_channel.fetch_message(int(scam_message_url.group(3)))
                         await scam_message.reactions[0].remove(self.user)
                         await self.mod_channel.send("Finished processing a malicious/frivolous user report")
+                        self.moderator_state = "Free"
                         return
                     else:
                         immediate_danger = await self.check_immediate_danger(message.channel)
@@ -294,6 +301,7 @@ class ModBot(discord.Client):
                         await scam_message.reactions[0].remove(self.user)
                         await scam_message.add_reaction("🆘")  # the dm has been flagged with immediate danger
                         await self.mod_channel.send("Finished processing a report")
+                        self.moderator_state = "Free"
                         return
                     else:
                         escalate = await self.check_escalate(message.channel)
@@ -307,6 +315,7 @@ class ModBot(discord.Client):
                         await scam_message.add_reaction("👨‍💼")  # the dm has been escalated
 
                         await self.mod_channel.send("Finished processing a report")
+                        self.moderator_state = "Free"
                         return
                     else:
                         #todo
@@ -323,6 +332,7 @@ class ModBot(discord.Client):
                         await self.handleMessage(forwarded_message, message.channel)
                         await self.handleReportedAccount(forwarded_message, message.channel)
                         await self.mod_channel.send("Finished processing a report")
+                        self.moderator_state = "Free"
                         return
 
 
