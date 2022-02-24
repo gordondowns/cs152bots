@@ -240,6 +240,7 @@ class ModBot(discord.Client):
         elif message.channel.name == f'group-{self.group_num}':
             scores = self.eval_text(message)
             report_to_moderator = await self.eval_perspective_score(message, scores)
+            self.check_message_against_blacklist(message)
             if report_to_moderator:
                 # Forward the message to the mod channel
                 # await self.mod_channel.send(f'Suspicious Scam Message Forwarded to Moderator:\n{message.author.name}: "{message.content}"')
@@ -259,6 +260,7 @@ class ModBot(discord.Client):
 
                 #TODO:only send the message at the top of the PQ, and send another when the current one HAS BEEN PROCESSED
                 # await self.mod_channel.send(self.code_format(json.dumps(fm.fmtodict(), indent=2)))
+
         else:
             #moderator should input "next report"
             if message.content.lower() == "next report":
@@ -372,6 +374,15 @@ class ModBot(discord.Client):
             return True
         else:
             return False
+
+    async def check_message_against_blacklist(self, message):
+        '''
+        Add web emoji to text if URL/address is in blacklist
+        '''
+        message_contains_blacklist_item = False
+        if message_contains_blacklist_item:
+            await message.add_reaction("🕸️")
+
 
     async def on_message_edit(self, before, after):
         '''
