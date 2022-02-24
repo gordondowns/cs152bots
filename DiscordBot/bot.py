@@ -234,7 +234,7 @@ class ModBot(discord.Client):
             immediate_danger = 0
         self.review_queue.put(
             PrioritizedReport((immediate_danger, datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f")), fm))
-        
+
         return True, ""
 
     async def handle_channel_message(self, message):
@@ -260,8 +260,8 @@ class ModBot(discord.Client):
                                      str(datetime.datetime.now()),
                                      reporter_account=None, mod_report=mod_report, scores=scores, auto_flagged=True)
                 immediate_danger = 1
-                self.review_queue.put((immediate_danger,
-                    PrioritizedReport(datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f")),fm))
+                self.review_queue.put(
+                    PrioritizedReport((immediate_danger,datetime.datetime.strptime(fm.report_time, "%Y-%m-%d %H:%M:%S.%f")),fm))
 
 
 
