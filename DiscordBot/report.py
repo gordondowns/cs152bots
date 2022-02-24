@@ -56,12 +56,6 @@ class Report:
         if self.state == State.AWAITING_MESSAGE_URL:
             await self.awaiting_message_url(message)
 
-        # if self.state == State.MESSAGE_IDENTIFIED:
-        #     return await self.ggg(message)
-        
-        # if self.state == State.AWAITING_CHOICE:
-        #     return await self.awaiting_user_choice(message)
-
         return []
 
     def report_cancelled(self):
@@ -99,26 +93,33 @@ class Report:
         try:
             # note that message is the user dm and self.message is the reported message!
             self.message = await channel.fetch_message(int(m.group(3)))
-            self.reporter_id = message.author.id
-            self.mod_report["report_dm_channel_id"] = message.channel.id
-            self.mod_report["reporter"] = message.author.name
-            self.timestamp = datetime.datetime.now()
-            self.mod_report["immediate_danger"] = False
-            self.mod_report["timestamp"] = str(self.timestamp)
             self.message_url = message.content
-            self.mod_report["message"] = {
-                "author_id": self.message.author.id,
-                "author": self.message.author.name, 
-                "content": self.message.content,
-                "url": self.message_url
-            }
+            self.dm_channel = message.channel
+            self.reporter_id = message.author.id
             self.state = State.MESSAGE_IDENTIFIED
         except discord.errors.NotFound:
             return ["It seems this message was deleted or never existed. Please try again or say `cancel` to cancel."]
 
         # Here we've found the message
-        self.dm_channel = message.channel
+        if self.client.check_message_url_against_active_reports(message.author.id, message.content):
+            self.state = State.REPORT_CANCELLED
+            await self.dm_channel.send("Report cancelled: you have already submitted a report on this message.")
+            return []
+
         await self.dm_channel.send(f"I found this message:\n```{self.message.author.name}: {self.message.content}```\n")
+
+        self.mod_report["report_dm_channel_id"] = message.channel.id
+        self.mod_report["reporter"] = message.author.name
+        self.mod_report["immediate_danger"] = False
+        self.timestamp = datetime.datetime.now()
+        self.mod_report["timestamp"] = str(self.timestamp)
+        self.mod_report["message"] = {
+            "author_id": self.message.author.id,
+            "author": self.message.author.name, 
+            "content": self.message.content,
+            "url": self.message_url
+        }
+
         await self.categorize_message()
         
     async def categorize_message(self):
