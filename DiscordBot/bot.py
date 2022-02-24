@@ -207,12 +207,13 @@ class ModBot(discord.Client):
         if self.reports[author_id].report_complete():
             self.reports.pop(author_id)
 
-    def handle_user_report_submission(self, author_id, mod_report):
+    def check_message_url_against_active_reports(self, author_id, message_url):
         # block the report from being submitted if the user already submitted a report on the same message
-        # TODO: can add more conditions
-        if self.reports[author_id].get_message_url() in self.user_active_reports[author_id]["message_urls"]:
-            return False, "you have already submitted a report on this message"
+        if message_url in self.user_active_reports[author_id]["message_urls"]:
+            return True
+        return False
 
+    def handle_user_report_submission(self, author_id, mod_report):
         # note down report stats
         timestamp = self.reports[author_id].get_timestamp()
         message_url = self.reports[author_id].get_message_url()
