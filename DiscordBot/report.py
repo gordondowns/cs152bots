@@ -226,7 +226,7 @@ class Report:
         # ask bot to forward the message to the mod channel
         sent, reason = self.client.handle_user_report_submission(self.reporter_id, self.mod_report)
         if sent: 
-            await self.message.add_reaction("🛑") # means the message is reported
+            await self.message.add_reaction("🇶") # means the message is reported
             await self.dm_channel.send(success_message)
             self.state = State.REPORT_SUBMITTED
         else: 

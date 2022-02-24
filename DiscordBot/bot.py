@@ -189,9 +189,8 @@ class ModBot(discord.Client):
             time_elapse = td.total_seconds() / 60
             if time_elapse < MALICIOUS_REPORTER_SUSPEND_TIME:
                 reply = "Reporting feature is temporarily suspended for your account."
-            await message.channel.send(reply)
-            return
-
+                await message.channel.send(reply)
+                return
 
         # If we don't currently have an active report for this user, add one
         if author_id not in self.reports:
@@ -261,8 +260,8 @@ class ModBot(discord.Client):
                 #TODO:only send the message at the top of the PQ, and send another when the current one HAS BEEN PROCESSED
                 # await self.mod_channel.send(self.code_format(json.dumps(fm.fmtodict(), indent=2)))
         else:
-            #moderator should input "review the next report in the queue"
-            if message.content.lower() == "review the next report in the queue":
+            #moderator should input "next report"
+            if message.content.lower() == "next report":
                 forwarded_message = await self.check_review_queue()
                 if forwarded_message is None:
                     reply = "No more reports to be reviewed.\n"
