@@ -269,7 +269,7 @@ class ModBot(discord.Client):
         else:
             #moderator should input "next report"
             if message.content.lower() == "next report":
-                if self.moderator_state == "BUSY":
+                if self.moderator_state == "Busy":
                     reply = "Please finish processing the current report before starting a new one.\n"
                     await message.channel.send(reply)
                     return
