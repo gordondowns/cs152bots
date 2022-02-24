@@ -479,7 +479,7 @@ class ModBot(discord.Client):
 
         msg = await self.wait_for("message", check=check)
         if msg.content.lower() == 'y':
-            await channel.send("MOCKED: Incident is reported to law enforcement!")
+            await channel.send("MOCKED: Incident is reported to law enforcement!\nThe report will be handled elsewhere.")
             return True
         else:
             return False
