@@ -279,7 +279,7 @@ class ModBot(discord.Client):
                         scam_message_channel = guild.get_channel(int(scam_message_url.group(2)))
                         scam_message = await scam_message_channel.fetch_message(int(scam_message_url.group(3)))
                         await scam_message.reactions[0].remove(self.user)
-                        await self.mod_channel.send("Finished processing a malicious user report")
+                        await self.mod_channel.send("Finished processing a malicious/frivolous user report")
                         return
                     else:
                         immediate_danger = await self.check_immediate_danger(message.channel)
@@ -402,7 +402,7 @@ class ModBot(discord.Client):
 
     async def check_malicious_user_report(self, forwarded_message, channel):
 
-        await channel.send("Is this a malicious user report? Enter 'y' or 'n'.")
+        await channel.send("Is this a malicious/frivolous user report? Enter 'y' or 'n'.")
 
         def check(msg):
             return msg.content.lower() in {'y', 'n'}
@@ -418,20 +418,20 @@ class ModBot(discord.Client):
     async def handle_malicious_user_report(self, forwarded_message, channel):
         malicious_user_id = forwarded_message.reporter_account
         malicious_report_channel_id = forwarded_message.mod_report["report_dm_channel_id"]
-        await channel.send("Choose outcome for the malicious reporter.")
+        await channel.send("Choose outcome for the malicious/frivolous reporter.")
         choices = [e.value for e in ReporterOutcomes]
         user_choice = await self.prompt_for_choice(choices, channel)
         reporteroutcome = ReporterOutcomes(choices[user_choice])
 
 
         if reporteroutcome == ReporterOutcomes.WARN:
-            await self.get_channel(malicious_report_channel_id).send("WARNING: please do not send malicious report!")
+            await self.get_channel(malicious_report_channel_id).send("WARNING: please do not send malicious/frivolous reports!")
         else:
             assert reporteroutcome == ReporterOutcomes.SUSPEND
             self.malicious_reporter_ids[malicious_user_id] = datetime.datetime.now()
             await self.get_channel(malicious_report_channel_id).send("Your report feature will be suspended for "+
-                                                                     str(MALICIOUS_REPORTER_SUSPEND_TIME)+ " minutes for "
-                                                                     "sending malicious report!", )
+                                                                     str(MALICIOUS_REPORTER_SUSPEND_TIME)+ " minutes for "+
+                                                                     "sending a malicious/frivolous report!", )
 
     async def check_immediate_danger(self, channel):
 
@@ -519,7 +519,7 @@ class ModBot(discord.Client):
 
 
 class ReporterOutcomes(Enum):
-    WARN = "Warn the reporter for malicious reports."
+    WARN = "Warn the reporter for malicious/frivolous reports."
     SUSPEND = "Suspend the report feature for the reporter account."
 
 class DMOutcomes(Enum):
@@ -530,7 +530,7 @@ class ReportedAccOutcomes(Enum):
     NOACTION = "False Alarm: No action."
     TEMPDEACTSHORT = "Low Severity: Temporarily deactivate reported account for a short period and warn."
     TEMPDEACTLONG = "Medium Severity: Temporarily deactivate reported account for a longer period and warn."
-    PERMANENTLYDEACT = "High Severity:Permanently deactivate reported account."
+    PERMANENTLYDEACT = "High Severity: Permanently deactivate reported account."
 
 
 
