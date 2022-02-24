@@ -110,6 +110,7 @@ class Report:
 
         self.mod_report["report_dm_channel_id"] = message.channel.id
         self.mod_report["reporter"] = message.author.name
+        self.mod_report["immediate_danger"] = False
         self.timestamp = datetime.datetime.now()
         self.mod_report["timestamp"] = str(self.timestamp)
         self.mod_report["message"] = {
@@ -145,7 +146,8 @@ class Report:
             await self.block_user()
 
         elif Categories(choices[user_choice]) == Categories.IMM_DANGER:
-            await self.send_report(IMM_DANGER_RESPONSE)
+            self.mod_report["immediate_danger"] = True
+            await self.send_report(IMM_DANGER_RESPONSE, immediate_danger=True)
             return
         
         elif Categories(choices[user_choice]) == Categories.SCAM:
@@ -223,7 +225,7 @@ class Report:
             self.mod_report["account_status"] = "Reported not compromised."
 
 
-    async def send_report(self, success_message):
+    async def send_report(self, success_message, immediate_danger = False):
         # ask bot to forward the message to the mod channel
         sent, reason = self.client.handle_user_report_submission(self.reporter_id, self.mod_report)
         if sent: 
