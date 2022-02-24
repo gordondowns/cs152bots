@@ -312,9 +312,13 @@ class ModBot(discord.Client):
                         #todo
                         newscamaddr =  await self.checkscamaddr(message.channel)
                         if newscamaddr is not None:
-                            self.scamaddr.add(newscamaddr)
-                            await self.mod_channel.send(
-                                "Added the reported scam URL/crypto address to the internal blacklist.")
+                            if newscamaddr not in self.scamaddr:
+                                self.scamaddr.add(newscamaddr)
+                                await self.mod_channel.send(
+                                    "Added the reported scam URL/crypto address to the internal blacklist.")
+                            else:
+                                await self.mod_channel.send(
+                                    "The reported scam URL/crypto address is already in the internal blacklist.")
 
                         await self.handleMessage(forwarded_message, message.channel)
                         await self.handleReportedAccount(forwarded_message, message.channel)
