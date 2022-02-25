@@ -160,10 +160,13 @@ if __name__ == "__main__":
                           "How are you?",
                           "I love this Discord channel! It has so many helpful people in it",
                           "Claim your free prize! Visit this link: https://bit.ly",
-                          "Hello"])
+                          "darn"])
     preds_manual = get_predictions(X_manual, model_mixed, vectorizer_mixed, predict_proba=True)
     np.set_printoptions(suppress=True)
-    # print(preds_manual)
+    
+    for x,pred in zip(X_manual,preds_manual):
+        print(f"{pred[1]:.3f}   {x}")
+
     
     ##### Save model
     # import pickle

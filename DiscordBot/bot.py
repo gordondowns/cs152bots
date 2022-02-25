@@ -18,7 +18,7 @@ from crypto_scam_classifier import naive_bayes_classifier
 
 
 # Thresholds
-PROFANITY_THRESHOLD = 0.5 #the threshold of being suspicious
+PROFANITY_THRESHOLD = 0.65 #the threshold of being suspicious
 PROFANITY_THRESHOLD_Moderation = 0.9 #manual review if PROFANITY_THRESHOLD< score < PROFANITY_THRESHOLD_Moderation
 MALICIOUS_REPORTER_SUSPEND_TIME = 1 #in mins
 SCAMMER_DEACT_TIME_SHORT = 1 #in days
@@ -358,7 +358,8 @@ class ModBot(discord.Client):
             'requestedAttributes': {
                                     'SEVERE_TOXICITY': {}, 'PROFANITY': {},
                                     'IDENTITY_ATTACK': {}, 'THREAT': {},
-                                    'TOXICITY': {}, 'FLIRTATION': {}
+                                    'TOXICITY': {},
+                                    #'FLIRTATION': {}
                                 },
             'doNotStore': True
         }
@@ -372,7 +373,7 @@ class ModBot(discord.Client):
         # now eval using crypto scam classifier
         crypto_scam_proba = naive_bayes_classifier.get_predictions([unidecoded_message_content], 
                                                         classifier, vectorizer, predict_proba=True)[0][1]
-        scores['CRYPTO_SCAM'] = crypto_scam_proba-0.15
+        scores['CRYPTO_SCAM'] = crypto_scam_proba
         
         return scores
 
