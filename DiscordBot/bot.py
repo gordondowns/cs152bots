@@ -372,7 +372,7 @@ class ModBot(discord.Client):
         # now eval using crypto scam classifier
         crypto_scam_proba = naive_bayes_classifier.get_predictions([unidecoded_message_content], 
                                                         classifier, vectorizer, predict_proba=True)[0][1]
-        scores['CRYPTO_SCAM'] = crypto_scam_proba
+        scores['CRYPTO_SCAM'] = crypto_scam_proba-0.15
         
         return scores
 
@@ -518,7 +518,7 @@ class ModBot(discord.Client):
         msg = await self.wait_for("message", check=check)
 
         if msg.content.lower() == 'y':
-            await channel.send("Please enter the reported scam URL/crypto address to be added to the internal blacklist.")
+            await channel.send("Please enter the reported scam URL/Bitcoin address to be added to the internal blacklist. Please only enter valid Bitcoin addresses and URLs, or else they will not be recognized during auto-flagging!")
             msg = await self.wait_for("message")
             url = msg.content
         return url
