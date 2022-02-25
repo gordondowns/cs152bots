@@ -125,8 +125,8 @@ class ModBot(discord.Client):
         self.scamaddr = set(['15a8R7dAVBnXxYkAkL4Rp7HeY3jacb2N3B', #platform's internal blacklist of scam URLs/crypto addresses. Initializing with a few examples
                              'bc1qxch7fme8karau7rl3s7pt2mfj2y6n8nzpj2d6u',
                              '37QgMqfZpzCqA9mMfokWGy5pNh7g1xFfPi',
-                             'https://www.thisisacryptoscam.com',
-                             'https://www.giveawayscams.com'])
+                             'thisisacryptoscam.com',
+                             'giveawayscams.com'])
 
 
         self.moderator_state = "Free" #"Free" if the moderator is done with a report, #"Busy" if dealing with a report, check before send msg to mod_channel
@@ -328,8 +328,9 @@ class ModBot(discord.Client):
                         #todo
                         newscamaddr =  await self.checkscamaddr(message.channel)
                         if newscamaddr is not None:
-                            if newscamaddr not in self.scamaddr:
-                                self.scamaddr.add(newscamaddr)
+                            newscamaddr_trimmed = re.sub(r"^(https?:\/\/)?(www\.)?", "", newscamaddr).rstrip("/") # trims prefix for URLs
+                            if newscamaddr_trimmed not in self.scamaddr:
+                                self.scamaddr.add(newscamaddr_trimmed)
                                 await self.mod_channel.send(
                                     "Added the reported scam URL/crypto address to the internal blacklist.")
                             else:
@@ -403,7 +404,7 @@ class ModBot(discord.Client):
         # Check for bitcoin addresses in blacklist. 
         bitcoin_regex = re.compile(r'\b([13][a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[ac-hj-np-zAC-HJ-NP-Z02-9]{11,71})\b')
         bitcoin_addresses = bitcoin_regex.findall(message.content)
-        url_regex = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
+        url_regex = re.compile(r"((https?:\/\/)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*))")
         urls = url_regex.findall(message.content)
 
         message_contains_blacklist_item = False
@@ -411,7 +412,9 @@ class ModBot(discord.Client):
             if addr in self.scamaddr:
                 message_contains_blacklist_item = True
         for url in urls:
-            if url in self.scamaddr:
+            url = url[0]
+            url_trimmed = re.sub(r"^(https?:\/\/)?(www\.)?", "", url).rstrip("/")
+            if url_trimmed in self.scamaddr:
                 message_contains_blacklist_item = True
         if message_contains_blacklist_item:
             await message.add_reaction("🕸️")
