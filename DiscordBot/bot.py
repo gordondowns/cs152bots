@@ -163,6 +163,11 @@ class ModBot(discord.Client):
         This function is called whenever a message is sent in a channel that the bot can see (including DMs). 
         Currently the bot is configured to only handle messages that are sent over DMs or in your group's "group-#" channel. 
         '''
+        # # Hack to pin messages: uncomment the two lines below, and then the bot will pin any message sent.
+        # # To unpin a message, just delete it.
+        # await message.pin()
+        # return
+
         # Ignore messages from the bot 
         if message.author.id == self.user.id:
             return
