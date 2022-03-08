@@ -69,7 +69,7 @@ class ForwardedReport(object):
         self.auto_flagged = auto_flagged
         self.report_time = timestamp
 
-    def fmtodict(self):
+    def fmtodict(self, abusive_reported_acc_strike, malicious_reporter_strike):
         fmdict = {}
         fmdict["reported_content"] = self.reported_content
         fmdict["reported_account"] = self.reported_account
@@ -79,6 +79,17 @@ class ForwardedReport(object):
         fmdict["mod_report"] = self.mod_report
         fmdict["scores"] = self.scores
         fmdict["auto_flagged"] = self.auto_flagged
+
+        reported_strike = 0
+        if self.reported_account in abusive_reported_acc_strike:
+            reported_strike = abusive_reported_acc_strike[self.reported_account]
+        fmdict["reported_account_abusive_strike"] = reported_strike
+
+        if self.reporter_account is not None:
+            reporter_strike = 0
+            if self.reporter_account in malicious_reporter_strike:
+                reporter_strike = malicious_reporter_strike[self.reporter_account]
+            fmdict["reporter_account_malicious_strike"] = reporter_strike
         return fmdict
 
 
@@ -130,12 +141,14 @@ class ModBot(discord.Client):
 
 
         self.moderator_state = "Free" #"Free" if the moderator is done with a report, #"Busy" if dealing with a report, check before send msg to mod_channel
+        self.abusive_reported_acc_strike = {}
+        self.malicious_reporter_strike = {}
 
     async def check_review_queue(self):
         nextmsg = None
         if not self.review_queue.empty():
             nextmsg = self.review_queue.get().item
-            await self.mod_channel.send(self.code_format(json.dumps(nextmsg.fmtodict(), indent=2)))
+            await self.mod_channel.send(self.code_format(json.dumps(nextmsg.fmtodict(self.abusive_reported_acc_strike, self.malicious_reporter_strike), indent=2)))
         return nextmsg
 
 
@@ -476,6 +489,10 @@ class ModBot(discord.Client):
         user_choice = await self.prompt_for_choice(choices, channel)
         reporteroutcome = ReporterOutcomes(choices[user_choice])
 
+        if malicious_user_id not in self.malicious_reporter_strike:
+            self.malicious_reporter_strike[malicious_user_id] = 0
+        self.malicious_reporter_strike[malicious_user_id] += 1
+
 
         if reporteroutcome == ReporterOutcomes.WARN:
             await self.get_channel(malicious_report_channel_id).send("WARNING: please do not send malicious/frivolous reports!")
@@ -554,6 +571,12 @@ class ModBot(discord.Client):
         user_choice = await self.prompt_for_choice(choices, channel)
         ReportedAccountOut  = ReportedAccOutcomes(choices[user_choice])
         scammer_id = forwarded_message.reported_account
+
+        if ReportedAccountOut != ReportedAccOutcomes.NOACTION:
+            if scammer_id not in self.abusive_reported_acc_strike:
+                self.abusive_reported_acc_strike[scammer_id] = 0
+            self.abusive_reported_acc_strike[scammer_id] += 1
+
 
         if ReportedAccountOut == ReportedAccOutcomes.TEMPDEACTSHORT:
             scammer = await self.fetch_user(scammer_id)
