@@ -159,7 +159,7 @@ class ModBot(discord.Client):
             d['mod_report']['message'].pop('author_id',None)
             d['mod_report']['message'].pop('url',None)
             d['mod_report']['message']['content'] = unidecode(d['mod_report']['message']['content'])
-            if 'scores' in d:
+            if d['scores'] != None:
                 d['scores'] = {k:round(v,3) for k,v in d['scores'].items()}
             # get rid of null values
             d = {k:v for k,v in d.items() if v != None}
