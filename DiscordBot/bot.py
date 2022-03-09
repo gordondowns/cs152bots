@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 import datetime
 from enum import Enum, auto
 import pickle
+import copy
 from crypto_scam_classifier import naive_bayes_classifier
-
 
 # Thresholds
 PROFANITY_THRESHOLD = 0.65 #the threshold of being suspicious
@@ -148,7 +148,26 @@ class ModBot(discord.Client):
         nextmsg = None
         if not self.review_queue.empty():
             nextmsg = self.review_queue.get().item
-            await self.mod_channel.send(self.code_format(json.dumps(nextmsg.fmtodict(self.abusive_reported_acc_strike, self.malicious_reporter_strike), indent=2)))
+            d = copy.deepcopy(nextmsg.fmtodict(self.abusive_reported_acc_strike, self.malicious_reporter_strike))
+            
+            # get rid of duplicated and/or unnecessary fields
+            d.pop('reported_content',None)
+            d.pop('reported_account',None)
+            d.pop('reporter_account',None)
+            d['mod_report'].pop('report_dm_channel_id',None)
+            d['mod_report'].pop('timestamp',None)
+            d['mod_report']['message'].pop('author_id',None)
+            d['mod_report']['message'].pop('url',None)
+            # get rid of null values
+            d = {k:v for k,v in d.items() if v != None}
+            report_str = json.dumps(d, indent=4)
+            # replace JSON formatting characters
+            report_str = report_str.replace('{','').replace('}','').replace('[','').replace(']','') \
+                .replace(',','').replace('"','').replace('\\n','  ')
+            # get rid of blank lines
+            report_str = "\n".join([line for line in report_str.split('\n') if line.strip() != ""])
+
+            await self.mod_channel.send(self.code_format(report_str))
         return nextmsg
 
 
