@@ -149,7 +149,7 @@ class ModBot(discord.Client):
         if not self.review_queue.empty():
             nextmsg = self.review_queue.get().item
             d = copy.deepcopy(nextmsg.fmtodict(self.abusive_reported_acc_strike, self.malicious_reporter_strike))
-            
+
             # get rid of duplicated and/or unnecessary fields
             d.pop('reported_content',None)
             d.pop('reported_account',None)
@@ -158,6 +158,7 @@ class ModBot(discord.Client):
             d['mod_report'].pop('timestamp',None)
             d['mod_report']['message'].pop('author_id',None)
             d['mod_report']['message'].pop('url',None)
+            d['mod_report']['message']['content'] = unidecode(d['mod_report']['message']['content'])
             # get rid of null values
             d = {k:v for k,v in d.items() if v != None}
             report_str = json.dumps(d, indent=4)
