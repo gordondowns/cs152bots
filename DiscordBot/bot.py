@@ -286,6 +286,7 @@ class ModBot(discord.Client):
             return
         elif message.channel.name == f'group-{self.group_num}':
             scores = self.eval_text(message)
+            print(scores)
             report_to_moderator = await self.eval_perspective_score(message, scores)
             await self.check_message_against_blacklist(message)
             if report_to_moderator:
